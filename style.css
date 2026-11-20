@@ -18,7 +18,6 @@
   --muted: #6a6a6e;
   --faint: #9c9c9f;
   --line: #e2e2e2;
-  --dash: #c4c4c4;
 
   --font: "Courier Prime", "Courier New", Courier, monospace;
   --font-display: "Doto", "Courier Prime", monospace;
@@ -39,7 +38,6 @@
   --muted: #9a9a9e;
   --faint: #6c6c70;
   --line: #232326;
-  --dash: #3c3c40;
   color-scheme: dark;
 }
 
@@ -120,10 +118,10 @@ body {
 
 /* --- Spec rows (top: id + theme toggle, bottom: tagline + version) */
 .spec-row {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;   /* keeps the dash dead-centre */
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  column-gap: 12px;
+  gap: 12px;
   min-height: 26px;
   font-size: 0.55rem;
   line-height: 1;
@@ -133,19 +131,10 @@ body {
   white-space: nowrap;
   user-select: none;
 }
-.spec-start { justify-self: start; }
-.spec-end   { justify-self: end; margin-right: -0.2em; }  /* cancel trailing letter-spacing */
-
-/* a short dotted rule in the middle — a pause, not a connector */
-.spec-dash {
-  width: 36px;
-  height: 1px;
-  background: repeating-linear-gradient(to right, var(--dash) 0 2px, transparent 2px 5px);
-}
+.spec-end { margin-right: -0.2em; }  /* cancel trailing letter-spacing */
 
 /* --- Theme toggle ---------------------------- */
 .theme-toggle {
-  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -227,6 +216,7 @@ body {
 }
 
 .dice-container {
+  position: relative;
   width: min(100%, 340px);
   aspect-ratio: 1;
   /* the canvas keeps headroom above the dice for the shake; pull it up so the
@@ -244,10 +234,16 @@ body {
 .dice-container.ready { opacity: 1; }
 .dice-container.dragging { cursor: grabbing; }
 .dice-container:focus-visible { outline: 2px dashed var(--fg); outline-offset: 4px; }
+/* The canvas is wider than the dice box (JS sizes it to the screen width) so
+   the dice can travel left/right while rolling. It ignores pointers, so the
+   square box underneath stays the tap / drag target. */
 .dice-container canvas {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
   display: block;
-  width: 100% !important;
-  height: 100% !important;
+  pointer-events: none;
 }
 
 .dice-caption {
@@ -259,22 +255,13 @@ body {
   color: var(--faint);
   text-transform: uppercase;
   user-select: none;
+  transition: opacity 0.3s ease;
 }
+.dice-caption.is-hidden { opacity: 0; }   /* hidden while the dice is rolling */
 
 /* --- Fortune output -------------------------- */
 .fortune-section {
-  margin-top: 20px;
-}
-
-.fortune-meta {
-  min-height: 1em;
-  font-size: 0.6rem;
-  line-height: 1;
-  letter-spacing: 0.2em;
-  color: var(--faint);
-  text-transform: uppercase;
-  white-space: nowrap;
-  overflow: hidden;
+  margin-top: 28px;
 }
 
 /* prompt + text share a two-column grid with the nudge below */
@@ -282,9 +269,6 @@ body {
   display: grid;
   grid-template-columns: calc(var(--gutter) - 10px) 1fr;
   column-gap: 10px;
-  margin-top: 12px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
 }
 
 .fortune-prompt {
@@ -361,7 +345,7 @@ body {
 
 @media (min-height: 860px) {
   .header        { margin-top: 44px; }
-  .fortune-section { margin-top: 28px; }
+  .fortune-section { margin-top: 36px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

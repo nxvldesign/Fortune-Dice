@@ -16,7 +16,7 @@ const $ = (id) => document.getElementById(id);
 const container  = $('dice-container');
 const textEl     = $('fortune-text');
 const caretEl    = $('fortune-caret');
-const metaEl     = $('fortune-meta');
+const captionEl  = document.querySelector('.dice-caption');
 const srEl       = $('fortune-sr');
 const nudgeText  = $('nudge-text');
 const themeBtn   = $('theme-toggle');
@@ -724,11 +724,14 @@ function roll() {
   drag.vx = drag.vy = 0;
 
   angVel.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(7, 10));
+  sim.p.copy(dice.position);
+  sim.v.set(rand(-1, 1) * 4, rand(1, 3), 0);
+  sim.kick = 0;
 
   cancelTyping();
   textEl.textContent = '';
   srEl.textContent = '';
-  scramble(metaEl, 'CONSULTING THE ORACLE...');
+  captionEl.classList.add('is-hidden');
   buzz(30);
 }
 
@@ -751,9 +754,7 @@ function finishSettle() {
   state = 'result';
   bunnyFace = resultFace;
   buzz([18, 50, 18]);
-  const no = String(Math.floor(rand(1000, 9999)));
-  const lucky = String(Math.floor(rand(1, 99))).padStart(2, '0');
-  scramble(metaEl, `FORTUNE Nº ${no} · LUCKY ${lucky}`);
+  captionEl.classList.remove('is-hidden');
   srEl.textContent = fortune;
   typewrite(fortune);
 }
@@ -775,6 +776,56 @@ const _e = new THREE.Euler();
 const _v = new THREE.Vector3();
 const restQ = new THREE.Quaternion();
 const restP = new THREE.Vector3();
+const _f = new THREE.Vector3();
+
+/* ---------- Shake physics: the dice is loose inside the phone ----------
+   While rolling, the dice lives in an invisible box the width of the stage.
+   Tilting the phone slides it downhill, jerking the phone throws it the other
+   way (it lags behind), it bounces off the side walls, and twisting the phone
+   makes it counter-spin. When the shake ends, the settle eases it back to
+   centre. Without motion sensors (tap / desktop) it gets random shoves. */
+const sim = { p: new THREE.Vector3(), v: new THREE.Vector3(), wallX: 0.8, kick: 0 };
+const FLOOR = -0.3, CEIL = 0.3;            // vertical travel of the dice centre
+const motion = { fx: 0, fy: 0, lin: 0, rot: new THREE.Vector3(), t: -1e9 };
+
+function stepShake(dt, now) {
+  const fresh = now - motion.t < 250;
+  _f.set(0, 0, 0);
+  if (fresh) _f.set(motion.fx, motion.fy, 0);
+  else _f.y = -6;                          // a little gravity for tap rolls
+
+  // random shoves, fading out while the phone itself is being shaken hard
+  const shove = fresh ? THREE.MathUtils.clamp(1 - motion.lin / 10, 0, 1) : 1;
+  sim.kick -= dt;
+  if (sim.kick <= 0 && shove > 0) {
+    sim.kick = rand(0.18, 0.34);
+    sim.v.x += rand(-1, 1) * 7 * shove;
+    sim.v.y += rand(0.4, 1) * 4 * shove;
+  }
+
+  // weak centring spring + damping so it never wanders off for good
+  _f.x += -sim.p.x * 6 - sim.v.x * 1.2;
+  _f.y += -sim.p.y * 6 - sim.v.y * 1.2;
+  sim.v.addScaledVector(_f, dt).clampLength(0, 14);
+  sim.p.addScaledVector(sim.v, dt);
+
+  // side walls: bounce, and the knock sets it spinning
+  if (Math.abs(sim.p.x) > sim.wallX) {
+    const s = Math.sign(sim.p.x);
+    sim.p.x = s * sim.wallX;
+    if (sim.v.x * s > 0) {
+      sim.v.x *= -0.55;
+      angVel.z += s * rand(3, 6);
+      angVel.y += rand(-2, 2);
+      buzz(8);
+    }
+  }
+  if (sim.p.y < FLOOR) { sim.p.y = FLOOR; if (sim.v.y < 0) { sim.v.y *= -0.5; angVel.x += rand(-3, 3); } }
+  if (sim.p.y > CEIL)  { sim.p.y = CEIL;  if (sim.v.y > 0) sim.v.y *= -0.4; }
+
+  // gyro: the dice lags behind the phone's own rotation
+  if (fresh) angVel.addScaledVector(motion.rot, -5 * dt);
+}
 
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
@@ -804,14 +855,19 @@ function update(t, dt, now) {
   restPose(t);
 
   if (state === 'shaking') {
-    // tumble + rattle
-    angVel.x += rand(-1, 1) * 40 * dt;
-    angVel.y += rand(-1, 1) * 40 * dt;
-    angVel.z += rand(-1, 1) * 40 * dt;
-    angVel.clampLength(6, 12);
+    stepShake(dt, now);
+    // tumble + a fine rattle on top of the travel
+    angVel.x += rand(-1, 1) * 30 * dt;
+    angVel.y += rand(-1, 1) * 30 * dt;
+    angVel.z += rand(-1, 1) * 30 * dt;
+    angVel.clampLength(5, 13);
     _q.setFromAxisAngle(_v.copy(angVel).normalize(), angVel.length() * dt);
     dice.quaternion.premultiply(_q);
-    dice.position.set(rand(-1, 1) * 0.1, Math.sin(t * 38) * 0.08 + 0.15, rand(-1, 1) * 0.06);
+    dice.position.set(
+      sim.p.x + rand(-1, 1) * 0.025,
+      sim.p.y + rand(-1, 1) * 0.02,
+      rand(-1, 1) * 0.04
+    );
     if (now >= shakeUntil) beginSettle(now);
   } else if (state === 'settling') {
     const k = Math.min(1, (now - settleStart) / settleDur);
@@ -845,7 +901,7 @@ function update(t, dt, now) {
 }
 
 /* ----------------------------------------------
-   Typewriter + scramble text
+   Typewriter
 ---------------------------------------------- */
 let typeToken = 0;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -866,23 +922,6 @@ async function typewrite(text) {
   if (tok === typeToken) caretEl.classList.remove('typing');
 }
 
-const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#+<>/';
-let scrambleToken = 0;
-function scramble(el, target) {
-  const tok = ++scrambleToken;
-  const start = performance.now();
-  const dur = reducedMotion ? 0 : 520;
-  const step = () => {
-    if (tok !== scrambleToken) return;
-    const k = dur ? Math.min(1, (performance.now() - start) / dur) : 1;
-    const n = Math.floor(target.length * k);
-    let out = target.slice(0, n);
-    for (let i = n; i < target.length; i++) out += target[i] === ' ' ? ' ' : GLYPHS[(Math.random() * GLYPHS.length) | 0];
-    el.textContent = out;
-    if (k < 1) requestAnimationFrame(step);
-  };
-  step();
-}
 
 /* ----------------------------------------------
    Input: shake, tap, keyboard, pointer parallax
@@ -895,8 +934,44 @@ nudgeText.textContent = isTouch
   ? "Can't shake? Then tap the dice to reveal your fortune."
   : "Can't shake? Then click the dice to reveal your fortune.";
 
+/** Device axes → screen axes (handles landscape). */
+function toScreen(x, y) {
+  const deg = (screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0;
+  const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  return [x * c - y * s, x * s + y * c];
+}
+
+const gravLP = { x: 0, y: 9.8 };   // low-passed gravity reaction, for devices without e.acceleration
+
+/** Turn a motion sample into the push a loose dice would feel, in screen space. */
+function readMotion(e) {
+  const ai = e.accelerationIncludingGravity, al = e.acceleration;
+  if (ai && ai.x != null) {
+    let gx, gy, lx, ly;
+    if (al && al.x != null) {
+      gx = ai.x - al.x; gy = ai.y - al.y; lx = al.x; ly = al.y;
+    } else {
+      gravLP.x += (ai.x - gravLP.x) * 0.15;
+      gravLP.y += (ai.y - gravLP.y) * 0.15;
+      gx = gravLP.x; gy = gravLP.y; lx = ai.x - gx; ly = ai.y - gy;
+    }
+    // gravity pulls it downhill (tilt); the phone's own jolts throw it the other way
+    const [sx, sy] = toScreen(-gx * 1.9 - lx * 25, -gy * 1.9 - ly * 25);
+    motion.fx = sx; motion.fy = sy;
+    motion.lin = Math.hypot(lx, ly);
+  }
+  const r = e.rotationRate;
+  if (r && r.alpha != null) {
+    const D = Math.PI / 180;
+    const [rx, ry] = toScreen((r.beta || 0) * D, (r.gamma || 0) * D);
+    motion.rot.set(rx, ry, (r.alpha || 0) * D);
+  }
+  motion.t = performance.now();
+}
+
 let lastAcc = null, lastHit = 0, hits = 0;
 function onMotion(e) {
+  readMotion(e);
   const a = e.accelerationIncludingGravity || e.acceleration;
   if (!a || a.x == null) return;
   if (lastAcc) {
@@ -987,14 +1062,24 @@ window.addEventListener('keydown', (e) => {
 /* ----------------------------------------------
    Resize + loop
 ---------------------------------------------- */
+// The canvas spans the screen width (centred on the dice box) so the dice has
+// room to travel left and right while rolling; the box itself stays the tap target.
+const MAX_STAGE = 900;
+const LOOK_AT = new THREE.Vector3(0, -0.2, 0);
+
 function resize() {
-  const w = container.clientWidth, h = container.clientHeight;
+  const h = container.clientHeight;
+  const w = Math.min(document.documentElement.clientWidth, MAX_STAGE);
   if (!w || !h) return;
-  renderer.setSize(w, h, false);
+  renderer.setSize(w, h);          // also sizes the canvas element
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  // side walls: keep the whole dice on screen
+  const halfW = camera.position.distanceTo(LOOK_AT) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
+  sim.wallX = THREE.MathUtils.clamp(halfW - 1.5, 0.3, 1.8);
 }
 new ResizeObserver(resize).observe(container);
+window.addEventListener('resize', resize);
 resize();
 
 const clock = new THREE.Clock();
