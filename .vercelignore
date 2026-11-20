@@ -1,0 +1,5 @@
+# Deploy only the site itself — never env files, tokens or local tooling
+/*
+!index.html
+!style.css
+!app.js
