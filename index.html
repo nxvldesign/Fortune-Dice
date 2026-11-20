@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎲</text></svg>">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="Fortune Dice — a pocket oracle. Shake your phone to find out what destiny wants to say.">
+  <title>Fortune Dice — Digital Oracle</title>
+
+  <!-- Set the theme before first paint (saved choice, else system preference) -->
+  <script>
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('fd-theme'); } catch (e) {}
+      if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Doto:wght@700;900&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="page">
+    <!-- Building-margin guide lines -->
+    <div class="margin-line margin-left" aria-hidden="true"></div>
+    <div class="margin-line margin-right" aria-hidden="true"></div>
+
+    <div class="frame">
+
+      <!-- Spec row (top) -->
+      <div class="spec-row">
+        <span class="spec-start" aria-hidden="true">FD&mdash;01</span>
+        <span class="spec-dash" aria-hidden="true"></span>
+        <button class="theme-toggle" id="theme-toggle" type="button">
+          <span class="theme-dot" aria-hidden="true"></span>
+          <span id="theme-label">DARK MODE</span>
+        </button>
+      </div>
+
+      <!-- Header -->
+      <header class="header">
+        <p class="header-tag">DIGITAL ORACLE</p>
+        <h1 class="title">FORTUNE DICE</h1>
+        <p class="subtitle">a pocket oracle that only speaks good news</p>
+      </header>
+
+      <!-- 3-D Dice Scene -->
+      <section class="scene" aria-label="Fortune dice">
+        <div class="dice-stage">
+          <div class="dice-container" id="dice-container" role="button" tabindex="0"
+               aria-label="Fortune dice. Tap to reveal your fortune, or drag to turn it around."></div>
+          <p class="dice-caption" aria-hidden="true">SHAKE • TO • ROLL</p>
+        </div>
+      </section>
+
+      <!-- Fortune text output -->
+      <section class="fortune-section">
+        <p class="fortune-meta" id="fortune-meta" aria-hidden="true">FORTUNE Nº ---- · LUCKY --</p>
+        <div class="fortune-bar">
+          <span class="fortune-prompt" aria-hidden="true">&gt;</span>
+          <p class="fortune-text" aria-hidden="true"><span id="fortune-text"></span><span class="fortune-caret" id="fortune-caret">▌</span></p>
+        </div>
+        <p class="sr-only" id="fortune-sr" aria-live="polite"></p>
+      </section>
+
+      <!-- Footer / instructions -->
+      <footer class="footer">
+        <p class="nudge">
+          <span class="nudge-icon" aria-hidden="true"><svg viewBox="0 0 14 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="1" width="11" height="16" rx="2.2"/><line x1="5.5" y1="14" x2="8.5" y2="14"/></svg></span>
+          <span id="nudge-text">Can't shake? Then tap the dice to reveal your fortune.</span>
+        </p>
+      </footer>
+
+      <!-- Spec row (bottom) -->
+      <div class="spec-row bottom" aria-hidden="true">
+        <span class="spec-start">GOOD FORTUNES ONLY</span>
+        <span class="spec-dash"></span>
+        <span class="spec-end">V.2026</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Three.js via import-map (ES modules) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
+
+</body>
+</html>
