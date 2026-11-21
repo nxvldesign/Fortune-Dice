@@ -786,7 +786,7 @@ const _f = new THREE.Vector3();
    centre. Without motion sensors (tap / desktop) it gets random shoves. */
 const sim = { p: new THREE.Vector3(), v: new THREE.Vector3(), wallX: 0.8, kick: 0 };
 const FLOOR = -0.3, CEIL = 0.3;            // vertical travel of the dice centre
-const motion = { fx: 0, fy: 0, lin: 0, rot: new THREE.Vector3(), t: -1e9 };
+const motion = { fx: 0, fy: 0, lin: 0, jolt: 0, rot: new THREE.Vector3(), t: -1e9 };
 
 function stepShake(dt, now) {
   const fresh = now - motion.t < 250;
@@ -930,9 +930,18 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 const needsPermission = typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function';
 let motionOn = false;
 
-nudgeText.textContent = isTouch
-  ? "Can't shake? Then tap the dice to reveal your fortune."
-  : "Can't shake? Then click the dice to reveal your fortune.";
+/* Nudge copy: the normal note, plus the states an iPhone can be in before
+   shake works (iOS only sends motion data after a tap + "Allow"). */
+const NUDGE = {
+  ready:  isTouch ? "Can't shake? Then tap the dice to reveal your fortune."
+                  : "Can't shake? Then click the dice to reveal your fortune.",
+  locked: 'Tap anywhere once to switch on shake.',
+  denied: 'Motion access is off. Tap the dice instead, or reopen the page and allow it.',
+  silent: "Shake isn't available here. Tap the dice to reveal your fortune.",
+};
+let nudgeKey = '';
+function setNudge(key) { nudgeKey = key; nudgeText.textContent = NUDGE[key]; }
+setNudge(isTouch && needsPermission ? 'locked' : 'ready');
 
 /** Device axes → screen axes (handles landscape). */
 function toScreen(x, y) {
@@ -941,24 +950,27 @@ function toScreen(x, y) {
   return [x * c - y * s, x * s + y * c];
 }
 
-const gravLP = { x: 0, y: 9.8 };   // low-passed gravity reaction, for devices without e.acceleration
+const gravLP = { x: 0, y: 9.8, z: 0 };   // low-passed gravity reaction, for devices without e.acceleration
 
 /** Turn a motion sample into the push a loose dice would feel, in screen space. */
 function readMotion(e) {
   const ai = e.accelerationIncludingGravity, al = e.acceleration;
   if (ai && ai.x != null) {
-    let gx, gy, lx, ly;
+    let gx, gy, lx, ly, lz;
     if (al && al.x != null) {
-      gx = ai.x - al.x; gy = ai.y - al.y; lx = al.x; ly = al.y;
+      gx = ai.x - al.x; gy = ai.y - al.y; lx = al.x; ly = al.y; lz = al.z || 0;
     } else {
       gravLP.x += (ai.x - gravLP.x) * 0.15;
       gravLP.y += (ai.y - gravLP.y) * 0.15;
-      gx = gravLP.x; gy = gravLP.y; lx = ai.x - gx; ly = ai.y - gy;
+      gravLP.z += ((ai.z || 0) - gravLP.z) * 0.15;
+      gx = gravLP.x; gy = gravLP.y;
+      lx = ai.x - gx; ly = ai.y - gy; lz = (ai.z || 0) - gravLP.z;
     }
     // gravity pulls it downhill (tilt); the phone's own jolts throw it the other way
     const [sx, sy] = toScreen(-gx * 1.9 - lx * 25, -gy * 1.9 - ly * 25);
     motion.fx = sx; motion.fy = sy;
     motion.lin = Math.hypot(lx, ly);
+    motion.jolt = Math.hypot(lx, ly, lz);
   }
   const r = e.rotationRate;
   if (r && r.alpha != null) {
@@ -969,42 +981,75 @@ function readMotion(e) {
   motion.t = performance.now();
 }
 
-let lastAcc = null, lastHit = 0, hits = 0;
+/* Shake detection that doesn't depend on the sensor's sample rate.
+   iPhones report motion faster and smoother than most Android phones, so the
+   change between two consecutive readings stays small even in a hard shake —
+   the old reading-to-reading check rarely fired there. Instead, count a jolt
+   when the phone's own acceleration spikes, or when the reading swings a lot
+   across a ~70 ms window. Two jolts within 600 ms start a roll. */
+const SHAKE_JOLT = 12;     // m/s² of linear acceleration (~1.2 g)
+const SHAKE_SWING = 20;    // m/s² of change across the window
+let swingRef = null, lastHit = -1e9, hits = 0, samples = 0;
+
 function onMotion(e) {
-  readMotion(e);
   const a = e.accelerationIncludingGravity || e.acceleration;
   if (!a || a.x == null) return;
-  if (lastAcc) {
-    const d = Math.abs(a.x - lastAcc.x) + Math.abs(a.y - lastAcc.y) + Math.abs(a.z - lastAcc.z);
-    if (d > 22) {
-      const now = performance.now();
-      hits = now - lastHit < 500 ? hits + 1 : 1;
-      lastHit = now;
-      if (hits >= 2 || state === 'shaking') roll();
-    }
+  samples++;
+  if (nudgeKey === 'silent') setNudge('ready');   // readings arrived after all
+  readMotion(e);
+  if (samples < 15) return;                    // let the filters settle first
+  const now = performance.now();
+  let jolt = motion.jolt > SHAKE_JOLT;
+  const az = a.z || 0;
+  if (!swingRef) swingRef = { x: a.x, y: a.y, z: az, t: now };
+  else if (now - swingRef.t >= 70) {
+    const d = Math.abs(a.x - swingRef.x) + Math.abs(a.y - swingRef.y) + Math.abs(az - swingRef.z);
+    if (d > SHAKE_SWING) jolt = true;
+    swingRef = { x: a.x, y: a.y, z: az, t: now };
   }
-  lastAcc = { x: a.x, y: a.y, z: a.z };
+  if (!jolt || now - lastHit < 90) return;     // count each jolt once
+  hits = now - lastHit < 600 ? hits + 1 : 1;
+  lastHit = now;
+  if (hits >= 2 || state === 'shaking') roll();
 }
 
 function enableMotion() {
   if (motionOn) return;
   window.addEventListener('devicemotion', onMotion);
   motionOn = true;
+  // some browsers grant access but never deliver readings — say so, don't fail silently
+  setTimeout(() => { if (!samples && isTouch) setNudge('silent'); }, 2500);
 }
 
 if (isTouch && !needsPermission && 'DeviceMotionEvent' in window) enableMotion();
 
-// iOS only grants motion access from a user gesture, and there is no button
-// any more — so the first tap anywhere on the page asks for it.
+/* iOS (and some newer browsers) only hand over motion data after a tap and an
+   "Allow". There is no button, so the first tap anywhere on the page asks. */
 let askedMotion = false;
+function onPermission(res, fromTap) {
+  if (res === 'granted') {
+    enableMotion();
+    setNudge('ready');
+    // confirm it worked — unless that tap also started a roll
+    if (fromTap && state === 'idle') typewrite('Shake unlocked. Go on, give it a shake.');
+  } else if (res === 'denied') {
+    askedMotion = true;
+    setNudge('denied');
+  }
+}
 async function askMotion() {
   if (!needsPermission || motionOn || askedMotion) return;
   askedMotion = true;
   try {
-    if ((await DeviceMotionEvent.requestPermission()) === 'granted') enableMotion();
-  } catch { askedMotion = false; /* not a valid gesture yet — try again next tap */ }
+    onPermission(await DeviceMotionEvent.requestPermission(), true);
+  } catch {
+    askedMotion = false;   // not a valid gesture yet — try again on the next tap
+  }
 }
 if (needsPermission) {
+  // An earlier "Allow" is remembered by the browser: ask quietly on load. Without
+  // a tap this never shows a prompt — it just resolves if access was already given.
+  DeviceMotionEvent.requestPermission().then((res) => onPermission(res, false), () => {});
   document.addEventListener('touchend', askMotion, { passive: true });
   document.addEventListener('click', askMotion);
 }
